@@ -33,6 +33,7 @@ import com.sodamesh.customer.SendRoute
 import com.sodamesh.navigation.SodaNav
 import com.sodamesh.perms.PermissionManager
 import com.sodamesh.perms.rememberMeshPermissionLauncher
+import com.sodamesh.vendor.CollectVendorIncoming
 import com.sodamesh.vendor.VendorAlertsRoute
 import com.sodamesh.vendor.VendorHomeRoute
 import com.sodamesh.vendor.VendorViewModel
@@ -92,6 +93,10 @@ private fun CustomerRoot() {
 private fun VendorRoot() {
     val navController = rememberNavController()
     val vm: VendorViewModel = viewModel(activityOwner())
+    // Always-on collector: inbound mesh orders reach the VM from ANY
+    // destination (auto-nav to alerts keys off pendingCount, which would
+    // never grow if collection only ran while the alerts screen was up).
+    CollectVendorIncoming(vm = vm)
     SodaNav(
         navController = navController,
         isVendor = true,
