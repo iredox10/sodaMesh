@@ -126,8 +126,13 @@ class BleMeshSender @Inject constructor(
                 IllegalStateException("Vendor scan failed: ${e.message}"),
             )
         }
+        // Only connect to peers that actually advertise the SodaMesh service.
+        // A "connect to anything" fallback would pick random nearby devices
+        // (headphones, TVs, other apps' wearables) and fail with confusing
+        // errors on busy phones. scanPeers() filters on the service UUID, so
+        // shopId may still be null for non-SodaMesh beacons reusing the UUID
+        // space — but the device DID carry our service UUID.
         val peer = peers.firstOrNull { it.shopId == MeshConfig.SHOP_ID }
-            ?: peers.firstOrNull { it.shopId?.startsWith("SODA-STORE") == true }
             ?: peers.firstOrNull()
             ?: return Result.failure(
                 IllegalStateException(
