@@ -47,6 +47,17 @@ data class MeshPacket(
             type == TYPE_ANNOUNCE || type == TYPE_ORDER || type == TYPE_ACK
 
         /**
+         * Parses one packet from [bytes], or null when malformed
+         * (truncated, unknown version/type, length mismatch).
+         *
+         * Non-throwing counterpart to [fromBytes] for the ingress path,
+         * where legacy raw payloads (pre-envelope bytes) must fall through
+         * to passthrough handling instead of raising.
+         */
+        fun fromBytesOrNull(bytes: ByteArray): MeshPacket? =
+            runCatching { fromBytes(bytes) }.getOrNull()
+
+        /**
          * Parses one packet from [bytes].
          * @throws IllegalArgumentException if malformed, version/type unknown, or truncated.
          */
