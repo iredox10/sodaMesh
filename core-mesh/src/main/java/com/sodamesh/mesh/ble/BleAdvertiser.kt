@@ -8,6 +8,7 @@ import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.os.ParcelUuid
+import android.util.Log
 import com.sodamesh.mesh.MeshConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.nio.charset.StandardCharsets
@@ -44,6 +45,8 @@ class BleAdvertiser @Inject constructor(
          * default 13-byte shopId; longer ids are truncated to stay valid.
          */
         const val MAX_SHOP_ID_BYTES = 20
+
+        private const val TAG = "BleAdvertiser"
     }
 
     private val _isAdvertising = MutableStateFlow(false)
@@ -59,6 +62,9 @@ class BleAdvertiser @Inject constructor(
         }
 
         override fun onStartFailure(errorCode: Int) {
+            // Surface chipset-level failures (e.g. ADVERTISE_FAILED_TOO_MANY_ADVERTISERS
+            // on phones with many active BLE apps) instead of failing silently.
+            Log.w(TAG, "BLE advertise failed: errorCode=$errorCode")
             _isAdvertising.value = false
         }
     }
@@ -67,7 +73,9 @@ class BleAdvertiser @Inject constructor(
         val manager = context.getSystemService(BluetoothManager::class.java) ?: return null
         val adapter = manager.adapter ?: return null
         if (!adapter.isEnabled) return null
-        if (!adapter.isMultipleAdvertisementSupported) return null
+        // NOTE: do NOT gate on adapter.isMultipleAdvertisementSupported — many
+        // chipsets misreport false yet advertise fine, which permanently broke
+        // the vendor on those phones. Failures surface via onStartFailure.
         return adapter.bluetoothLeAdvertiser
     }
 
