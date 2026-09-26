@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sodamesh.common.FlavorConfig
 import com.sodamesh.perms.PermissionManager
 import com.sodamesh.perms.rememberMeshPermissionLauncher
 import dagger.hilt.EntryPoint
@@ -109,6 +111,17 @@ fun PermissionGate(content: @Composable () -> Unit) {
     }
 
     if (missing.isEmpty()) {
+        // Start the mesh foreground service only once permissions are fully
+        // granted (API 34+ connectedDevice FGS requires BLUETOOTH_CONNECT at
+        // startForeground time). Compose-side idempotency: MeshService is
+        // start-again-safe and the gate only re-runs this on transitions.
+        LaunchedEffect(Unit) {
+            if (FlavorConfig.isVendor) {
+                MeshService.startVendor(context)
+            } else {
+                MeshService.startCustomer(context)
+            }
+        }
         content()
     } else {
         PermissionGateScreen(

@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.sodamesh.common.FlavorConfig
+import com.sodamesh.perms.PermissionManager
 import com.sodamesh.ui.theme.SodaMeshTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -20,10 +21,16 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (FlavorConfig.isVendor) {
-            MeshService.startVendor(this)
-        } else {
-            MeshService.startCustomer(this)
+        // API 34+ forbids starting a connectedDevice FGS without
+        // BLUETOOTH_CONNECT already granted. When permissions are still
+        // missing, PermissionGate starts the service right after the user
+        // grants them; on recreate-with-grants we start immediately.
+        if (PermissionManager.missingPerms(this).isEmpty()) {
+            if (FlavorConfig.isVendor) {
+                MeshService.startVendor(this)
+            } else {
+                MeshService.startCustomer(this)
+            }
         }
         setContent {
             SodaMeshTheme {

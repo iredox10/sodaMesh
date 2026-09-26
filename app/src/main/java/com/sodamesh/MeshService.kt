@@ -90,12 +90,23 @@ class MeshService : Service() {
             } else {
                 0
             }
-        ServiceCompat.startForeground(
-            this,
-            KEEP_ALIVE_ID,
-            notifier.buildKeepAlive(),
-            foregroundType,
-        )
+        // On API 34+ the connectedDevice type requires BLUETOOTH_CONNECT to be
+        // GRANTED at startForeground time. Phones where the user grants
+        // permissions at runtime (i.e. every real install) hit a
+        // SecurityException here when the service is started too early — so
+        // instead of crashing we bail out and let the UI re-start us after
+        // the permission gate passes.
+        try {
+            ServiceCompat.startForeground(
+                this,
+                KEEP_ALIVE_ID,
+                notifier.buildKeepAlive(),
+                foregroundType,
+            )
+        } catch (e: Exception) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         when (intent?.action) {
             ACTION_START_VENDOR -> role?.startAdvertising()
