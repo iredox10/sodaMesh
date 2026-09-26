@@ -113,6 +113,17 @@ class BleMeshSender @Inject constructor(
             )
         }
 
+        // Android 11 and below silently drops BLE scan results while location
+        // services are off — surface an actionable error instead of "no vendor".
+        if (!scanner.isLocationEnabled(appContext)) {
+            return Result.failure(
+                IllegalStateException(
+                    "Location services are off — enable them so this phone can " +
+                        "discover the store over Bluetooth, then retry.",
+                ),
+            )
+        }
+
         val peers = try {
             scanner.sweepOnce(windowMs = SCAN_TIMEOUT_MS)
         } catch (se: SecurityException) {

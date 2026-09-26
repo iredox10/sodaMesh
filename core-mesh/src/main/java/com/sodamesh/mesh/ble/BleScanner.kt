@@ -8,6 +8,7 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.location.LocationManager
 import android.os.ParcelUuid
 import com.sodamesh.mesh.ble.BleAdvertiser.Companion.SERVICE_PARCEL_UUID
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -78,11 +79,32 @@ class BleScanner @Inject constructor(
 
     private fun scanSettings(): ScanSettings =
         ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+            // LOW_POWER stretches scan intervals so a short one-shot discovery
+            // window misses vendors whose advertisements are staggered. BALANCED
+            // keeps battery cost modest while reliably catching adverts in
+            // multi-second windows.
+            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
             .build()
+
+    /**
+     * True when at least one location provider is enabled.
+     *
+     * On API <= 30 the platform drops BLE scan results entirely when location
+     * services are off — scanning "works" but returns nothing, which looked
+     * like a dead app on those phones. Callers surface an actionable error.
+     */
+    fun isLocationEnabled(context: Context): Boolean {
+        val manager = context.getSystemService(LocationManager::class.java) ?: return true
+        return try {
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        } catch (_: Exception) {
+            true
+        }
+    }
 
     internal fun parseShopId(result: ScanResult): String? {
         val bytes = result.scanRecord?.getServiceData(SERVICE_PARCEL_UUID) ?: return null
