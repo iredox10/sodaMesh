@@ -212,10 +212,26 @@ class CustomerViewModel @Inject constructor() : ViewModel() {
             _sendState.value = SendState.Relayed
             val acked = withTimeoutOrNull(ACK_WAIT_MS) {
                 // observeAck() is cold; first{} suspends until the vendor ACK arrives.
-                sender.observeAck().first { it == order.orderId }
+                // BleMeshSender emits the raw payload ("orderId|ACCEPTED" /
+                // "orderId|REJECTED"), so match on the prefix before the LAST '|'
+                // plus a known token (orderIds may themselves contain '|').
+                // Bare orderId equality is kept as a legacy fallback (treated as accepted).
+                sender.observeAck().first { payload ->
+                    if (payload == order.orderId) return@first true
+                    val sep = payload.lastIndexOf('|')
+                    if (sep < 0) return@first false
+                    payload.substring(0, sep) == order.orderId &&
+                        (payload.substring(sep + 1) == ACK_ACCEPTED ||
+                            payload.substring(sep + 1) == ACK_REJECTED)
+                }
             }
             if (acked != null) {
-                _sendState.value = SendState.Delivered
+                val token = acked.substringAfterLast('|', missingDelimiterValue = "")
+                if (token == ACK_REJECTED) {
+                    fail("The vendor declined your order.")
+                } else {
+                    _sendState.value = SendState.Delivered
+                }
             }
             // Timeout: deliberately stay Relayed — order is in the mesh,
             // the vendor confirmation just hasn't been observed yet.
@@ -233,5 +249,13 @@ class CustomerViewModel @Inject constructor() : ViewModel() {
 
         /** Max wait for the vendor ACK before settling at Relayed. */
         const val ACK_WAIT_MS = 12_000L
+
+        /**
+         * ACK tokens from `VendorPipeline.buildAck` ("orderId|TOKEN").
+         * Mirrored here so the customer flavor parses the contract without
+         * depending on vendor pipeline types.
+         */
+        const val ACK_ACCEPTED = "ACCEPTED"
+        const val ACK_REJECTED = "REJECTED"
     }
 }
