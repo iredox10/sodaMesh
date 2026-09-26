@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
 }
@@ -17,8 +18,10 @@ android {
         versionName = "0.1.0"
         vectorDrawables { useSupportLibrary = true }
     }
-    buildFeatures { compose = true }
-    composeOptions { kotlinCompilerExtensionVersion = "1.5.15" }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     flavorDimensions += "store"
     productFlavors {
         create("customer") { dimension = "store"; applicationIdSuffix = ".customer" }
@@ -44,6 +47,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("com.google.dagger:hilt-android:2.52")
     ksp("com.google.dagger:hilt-compiler:2.52")
     implementation("androidx.room:room-runtime:2.6.1")
