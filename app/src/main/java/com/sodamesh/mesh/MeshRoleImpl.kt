@@ -8,6 +8,9 @@ import com.sodamesh.mesh.transport.GattServerManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Vendor-side [MeshRole].
@@ -22,6 +25,7 @@ import javax.inject.Singleton
 class MeshRoleImpl @Inject constructor(
     private val advertiser: BleAdvertiser,
     private val scanner: BleScanner,
+    private val pipeline: VendorPipeline,
     @ApplicationContext private val appContext: Context,
 ) : MeshRole {
 
@@ -29,13 +33,13 @@ class MeshRoleImpl @Inject constructor(
 
     override fun startAdvertising() {
         if (gattServer == null) {
-            gattServer = GattServerManager(appContext) {
-                // Vendor ingress hook: wire to OrderDao / OrderNotifier when
-                // the vendor pipeline lands. Currently no VendorPipeline exists.
-            }
+            val server = GattServerManager(appContext, onPacket = pipeline::handlePacket)
+            gattServer = server
+            runCatching { pipeline.bindGatt(server) }
         }
         runCatching { gattServer?.start() }
         runCatching { advertiser.startAdvertising() }
+        runCatching { pipeline.start(CoroutineScope(SupervisorJob() + Dispatchers.Default)) }
     }
 
     override fun startScanning() {
@@ -46,8 +50,10 @@ class MeshRoleImpl @Inject constructor(
     }
 
     override fun stop() {
+        runCatching { pipeline.stop() }
         runCatching { advertiser.stopAdvertising() }
         runCatching { gattServer?.stop() }
+        runCatching { pipeline.bindGatt(null) }
         gattServer = null
         // BleScanner needs no stop: scanPeers Flow teardown handles it.
     }
