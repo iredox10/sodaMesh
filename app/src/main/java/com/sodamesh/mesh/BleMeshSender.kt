@@ -37,8 +37,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   multiple hops. Fragmentation already handles the larger envelope bytes.
  *   The GATT link is intentionally kept open: the vendor ACK arrives as a
  *   notification on the same connection and is surfaced via [observeAck].
- * - [observeAck] decodes [GattClientManager.acks] (ACK payload = orderId
- *   UTF-8), clears the matching [Outbox] entry, and re-emits the orderId.
+ * - [observeAck] decodes [GattClientManager.acks] (ACK payload =
+ *   `orderId|ACCEPTED` / `orderId|REJECTED` UTF-8 per
+ *   `VendorPipeline.buildAck`), clears the matching [Outbox] entry (keyed by
+ *   the bare orderId), and re-emits the full payload.
  * - [retryDelivery] is the best-effort background redelivery used by
  *   [OutboxWorker]: it re-envelopes one raw order payload and writes it over
  *   the current GATT link without scanning/connecting.
@@ -196,7 +198,13 @@ class BleMeshSender @Inject constructor(
         gattClient.acks
             .map { raw -> String(raw, StandardCharsets.UTF_8).trim() }
             .filter { it.isNotEmpty() }
-            .onEach { ackedId -> runCatching { outbox.ack(ackedId) } }
+            .onEach { payload ->
+                // Payload is "orderId|TOKEN" (VendorPipeline.buildAck); the
+                // outbox entry is keyed by the bare orderId, so strip the
+                // token before clearing. Bare orderIds pass through as-is.
+                val ackedId = payload.substringBeforeLast('|', missingDelimiterValue = payload)
+                runCatching { outbox.ack(ackedId) }
+            }
 
     /**
      * Wraps raw `OrderCodec` [orderBytes] in a `TYPE_ORDER` broadcast
