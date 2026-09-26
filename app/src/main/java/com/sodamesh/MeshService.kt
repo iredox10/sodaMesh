@@ -10,6 +10,8 @@ import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.sodamesh.notify.OrderNotifier
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * Role callbacks the service drives. Deliberately implementation-free:
@@ -35,10 +37,12 @@ interface MeshRole {
  * No BLE code lives here — this class only owns the foreground lifecycle
  * and delegates to the injected [role].
  */
+@AndroidEntryPoint
 class MeshService : Service() {
 
-    /** Set by the owning agent after bind; no default impl on purpose. */
-    var role: MeshRole? = null
+    /** Real BLE role (vendor advertiser / customer scanner), Hilt-injected. */
+    @Inject
+    lateinit var role: MeshRole
 
     private lateinit var notifier: OrderNotifier
     private val binder = LocalBinder()
@@ -109,21 +113,20 @@ class MeshService : Service() {
         }
 
         when (intent?.action) {
-            ACTION_START_VENDOR -> role?.startAdvertising()
-            ACTION_START_CUSTOMER -> role?.startScanning()
+            ACTION_START_VENDOR -> role.startAdvertising()
+            ACTION_START_CUSTOMER -> role.startScanning()
             ACTION_STOP -> stopSelf()
             else -> if (intent?.getBooleanExtra(EXTRA_IS_VENDOR, false) == true) {
-                role?.startAdvertising()
+                role.startAdvertising()
             } else {
-                role?.startScanning()
+                role.startScanning()
             }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
-        runCatching { role?.stop() }
-        role = null
+        runCatching { role.stop() }
         super.onDestroy()
     }
 }

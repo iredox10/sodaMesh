@@ -1,6 +1,7 @@
 package com.sodamesh.mesh
 
 import android.content.Context
+import android.util.Log
 import com.sodamesh.MeshRole
 import com.sodamesh.mesh.ble.BleAdvertiser
 import com.sodamesh.mesh.ble.BleScanner
@@ -33,6 +34,10 @@ class MeshRoleImpl @Inject constructor(
 
     private var gattServer: GattServerManager? = null
 
+    private companion object {
+        const val TAG = "MeshRoleImpl"
+    }
+
     override fun startAdvertising() {
         if (gattServer == null) {
             // Ingress: reassembled GATT bytes are MeshPacket envelopes
@@ -47,8 +52,13 @@ class MeshRoleImpl @Inject constructor(
             gattServer = server
             runCatching { pipeline.bindGatt(server) }
         }
-        runCatching { gattServer?.start() }
-        runCatching { advertiser.startAdvertising() }
+        val serverUp = runCatching { gattServer?.start() }.getOrDefault(false)
+        val advertiseUp = runCatching { advertiser.startAdvertising() }.getOrDefault(false)
+        if (!serverUp || !advertiseUp) {
+            // Diagnose the "customer can't find vendor" class of failures:
+            // Bluetooth off, missing permission, chipset refusal, etc.
+            Log.w(TAG, "vendor mesh start incomplete: gattServer=$serverUp advertise=$advertiseUp")
+        }
         runCatching { pipeline.start(CoroutineScope(SupervisorJob() + Dispatchers.Default)) }
     }
 

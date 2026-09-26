@@ -1,5 +1,6 @@
 package com.sodamesh.mesh
 
+import com.sodamesh.MeshRole
 import com.sodamesh.data.MeshSender
 import dagger.Binds
 import dagger.Module
@@ -24,4 +25,8 @@ abstract class MeshBindings {
 
     @Binds
     abstract fun bindMeshSender(impl: BleMeshSender): MeshSender
+
+    /** Lets [com.sodamesh.MeshService] drive the real BLE role. */
+    @Binds
+    abstract fun bindMeshRole(impl: MeshRoleImpl): MeshRole
 }
