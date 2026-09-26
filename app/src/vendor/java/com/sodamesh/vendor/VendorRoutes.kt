@@ -145,6 +145,8 @@ fun VendorHomeRoute(
 
     ForwardVendorAcks(vm = vm)
 
+    CollectVendorIncoming(vm = vm)
+
     VendorHomeScreen(
         isAdvertising = isAdvertising,
         orderCount = orders.size,
@@ -180,6 +182,8 @@ fun VendorAlertsRoute(
     val orders by vm.orders.collectAsStateWithLifecycle()
 
     ForwardVendorAcks(vm = vm, ackSender = ackSender)
+
+    CollectVendorIncoming(vm = vm)
 
     val latestPending = orders
         .filter { it.status == VendorOrderStatus.PENDING }
