@@ -66,6 +66,9 @@ class GattClientManager(
         const val DEFAULT_MTU = 23
         const val REQUESTED_MTU = 517
         const val WRITE_TIMEOUT_MS = 5_000L
+
+        /** Fallback if the stack never answers the MTU request. */
+        const val MTU_FALLBACK_MS = 2_000L
     }
 
     private val _state = MutableStateFlow(ConnectionState.IDLE)
@@ -78,6 +81,10 @@ class GattClientManager(
 
     private val reassembler = Reassembler()
     private val writeMutex = Mutex()
+
+    /** True once discoverServices() has been issued for the current link. */
+    @Volatile
+    private var discoveryStarted: Boolean = false
 
     private var gatt: BluetoothGatt? = null
     private var orderChar: BluetoothGattCharacteristic? = null
@@ -96,15 +103,26 @@ class GattClientManager(
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 _state.value = ConnectionState.CONNECTED
-                try {
+                // ATT allows only ONE pending request: request MTU first and
+                // chain discovery from onMtuChanged. Issuing both back-to-back
+                // makes many OEM stacks (Samsung/Xiaomi/Pixel) fail discovery
+                // with status 133.
+                discoveryStarted = false
+                val mtuRequested = try {
                     g.requestMtu(REQUESTED_MTU)
                 } catch (_: Exception) {
-                    // Best effort; DEFAULT_MTU still works.
+                    false
                 }
-                try {
-                    g.discoverServices()
-                } catch (_: Exception) {
-                    disconnect()
+                if (!mtuRequested) {
+                    startDiscovery(g)
+                } else {
+                    // Safety net for stacks that never invoke onMtuChanged.
+                    scope.launch {
+                        delay(MTU_FALLBACK_MS)
+                        if (_state.value == ConnectionState.CONNECTED && !discoveryStarted) {
+                            startDiscovery(g)
+                        }
+                    }
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 _state.value = ConnectionState.DISCONNECTED
@@ -119,6 +137,9 @@ class GattClientManager(
             if (status == BluetoothGatt.GATT_SUCCESS && newMtu > mtu) {
                 mtu = newMtu
             }
+            // Continue the connect chain whatever the MTU outcome was —
+            // DEFAULT_MTU still works.
+            startDiscovery(g)
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
@@ -191,6 +212,16 @@ class GattClientManager(
             status: Int,
         ) {
             pendingWrite?.complete(status)
+        }
+    }
+
+    private fun startDiscovery(g: BluetoothGatt) {
+        if (discoveryStarted) return
+        discoveryStarted = true
+        try {
+            if (!g.discoverServices()) disconnect()
+        } catch (_: Exception) {
+            disconnect()
         }
     }
 
@@ -288,6 +319,7 @@ class GattClientManager(
         orderChar = null
         ackChar = null
         mtu = DEFAULT_MTU
+        discoveryStarted = false
         if (_state.value != ConnectionState.IDLE) {
             _state.value = ConnectionState.DISCONNECTED
         }
