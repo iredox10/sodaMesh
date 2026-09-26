@@ -52,7 +52,7 @@ class MeshRoleImpl @Inject constructor(
             gattServer = server
             runCatching { pipeline.bindGatt(server) }
         }
-        val serverUp = runCatching { gattServer?.start() }.getOrDefault(false)
+        val serverUp = runCatching { gattServer?.start() }.getOrNull() == true
         val advertiseUp = runCatching { advertiser.startAdvertising() }.getOrDefault(false)
         if (!serverUp || !advertiseUp) {
             // Diagnose the "customer can't find vendor" class of failures:
