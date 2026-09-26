@@ -198,6 +198,36 @@ class MessageRouter @Inject constructor(
         _inbound.close()
     }
 
+    /**
+     * Ingress decap helper for the vendor path (wired by the coordinator):
+     * strips the [MeshPacket] envelope off reassembled GATT bytes.
+     *
+     * - Valid envelope: runs [onReceive] (dedup + deliver-if-mine + jittered
+     *   relay) and returns the order payload iff the packet is for this node
+     *   ([isMine]: broadcasts always, directed iff recipient == me) AND
+     *   carries `TYPE_ORDER`. Valid non-order packets (ANNOUNCE/ACK) and
+     *   valid order packets for other nodes return null (no local delivery;
+     *   relay was still scheduled).
+     * - Legacy raw payload (pre-envelope bytes, [MeshPacket.fromBytesOrNull]
+     *   fails): returned as-is (passthrough) so old senders keep working. No
+     *   dedup/relay bookkeeping is applied to passthrough bytes.
+     *
+     * @param bytes reassembled GATT payload (enveloped or legacy raw).
+     * @param ingressId peer the bytes arrived from (excluded from relay targets).
+     */
+    fun ingressPayload(
+        bytes: ByteArray,
+        ingressId: String? = null,
+        neighbors: List<String> = emptyList(),
+        degree: Int = neighbors.size,
+        nowMs: Long = System.currentTimeMillis(),
+    ): ByteArray? {
+        val packet = MeshPacket.fromBytesOrNull(bytes) ?: return bytes.copyOf()
+        onReceive(packet, ingressId, neighbors, degree, nowMs)
+        if (!isMine(packet)) return null
+        return MeshPacketFactory.extractOrderPayload(packet)
+    }
+
     companion object {
         /** Initial [inbound] backlog hint. The channel itself is unlimited; this is documentation only. */
         const val INBOUND_BUFFER = 64
