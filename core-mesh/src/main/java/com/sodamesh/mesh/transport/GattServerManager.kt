@@ -217,7 +217,7 @@ class GattServerManager(
         val targets = synchronized(subscribers) { subscribers.toList() }
         if (targets.isEmpty()) return false
         val fragments = try {
-            Fragmenter.split(payload, fragId)
+            Fragmenter.split(fragId, payload).map(Fragmenter::encode)
         } catch (_: IllegalArgumentException) {
             return false
         }

@@ -233,7 +233,7 @@ class GattClientManager(
         val chunkSize = (mtu - ATT_OVERHEAD - Fragmenter.HEADER_SIZE)
             .coerceIn(1, Fragmenter.MAX_PAYLOAD_PER_FRAGMENT)
         val fragments = try {
-            Fragmenter.split(payload, fragId, chunkSize)
+            Fragmenter.split(fragId, payload, chunkSize).map(Fragmenter::encode)
         } catch (_: IllegalArgumentException) {
             return false
         }
