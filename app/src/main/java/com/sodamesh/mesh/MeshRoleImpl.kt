@@ -4,6 +4,7 @@ import android.content.Context
 import com.sodamesh.MeshRole
 import com.sodamesh.mesh.ble.BleAdvertiser
 import com.sodamesh.mesh.ble.BleScanner
+import com.sodamesh.mesh.router.MessageRouter
 import com.sodamesh.mesh.transport.GattServerManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -26,6 +27,7 @@ class MeshRoleImpl @Inject constructor(
     private val advertiser: BleAdvertiser,
     private val scanner: BleScanner,
     private val pipeline: VendorPipeline,
+    private val router: MessageRouter,
     @ApplicationContext private val appContext: Context,
 ) : MeshRole {
 
@@ -33,7 +35,15 @@ class MeshRoleImpl @Inject constructor(
 
     override fun startAdvertising() {
         if (gattServer == null) {
-            val server = GattServerManager(appContext, onPacket = pipeline::handlePacket)
+            // Ingress: reassembled GATT bytes are MeshPacket envelopes
+            // (BleMeshSender wraps orders before writing). Decap via the
+            // router first — dedup + relay bookkeeping run there — then feed
+            // the order payload to the pipeline. Legacy raw payloads
+            // (pre-envelope senders) pass through untouched.
+            val server = GattServerManager(appContext, onPacket = { bytes ->
+                val payload = router.ingressPayload(bytes)
+                if (payload != null) pipeline.handlePacket(payload)
+            })
             gattServer = server
             runCatching { pipeline.bindGatt(server) }
         }
