@@ -3,10 +3,12 @@ package com.sodamesh.mesh
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import com.sodamesh.data.MeshSender
+import com.sodamesh.data.PrefsStore
 import com.sodamesh.mesh.MeshConfig
 import com.sodamesh.mesh.ble.BlePermissions
 import com.sodamesh.mesh.ble.BleScanner
 import com.sodamesh.mesh.model.OrderCodec
+import com.sodamesh.mesh.router.MeshPacketFactory
 import com.sodamesh.mesh.store.Outbox
 import com.sodamesh.mesh.transport.GattClientManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,10 +30,22 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   (`peerId = "vendor"`, keyed by the decoded orderId so later ACKs clear
  *   it), does a one-shot [BleScanner.sweepOnce] for the SODA-STORE peer,
  *   then connects + streams the payload via [GattClientManager.writeOrder].
+ *   What is written is NOT the raw `OrderCodec` bytes: they are first
+ *   wrapped in a [MeshPacket][com.sodamesh.mesh.model.MeshPacket]
+ *   `TYPE_ORDER` broadcast envelope (TTL = `MeshConfig.TTL_DEFAULT`) via
+ *   [envelopeForOrder], so intermediate nodes can TTL-relay the order over
+ *   multiple hops. Fragmentation already handles the larger envelope bytes.
  *   The GATT link is intentionally kept open: the vendor ACK arrives as a
  *   notification on the same connection and is surfaced via [observeAck].
  * - [observeAck] decodes [GattClientManager.acks] (ACK payload = orderId
  *   UTF-8), clears the matching [Outbox] entry, and re-emits the orderId.
+ * - [retryDelivery] is the best-effort background redelivery used by
+ *   [OutboxWorker]: it re-envelopes one raw order payload and writes it over
+ *   the current GATT link without scanning/connecting.
+ *
+ * The outbox always stores the RAW order bytes (never the envelope): the
+ * queueId derivation (`OrderCodec.decode`) and the vendor legacy path both
+ * operate on raw bytes, and re-enveloping at write time keeps the TTL fresh.
  *
  * Missing permissions / Bluetooth-off / no-vendor / link failures all
  * return [Result.failure] with a human-readable message (the customer VM
@@ -42,6 +56,7 @@ class BleMeshSender @Inject constructor(
     private val scanner: BleScanner,
     private val gattClient: GattClientManager,
     private val outbox: Outbox,
+    private val prefsStore: PrefsStore?,
     @ApplicationContext private val appContext: Context,
 ) : MeshSender {
 
@@ -54,6 +69,13 @@ class BleMeshSender @Inject constructor(
 
         /** Max wait for the GATT link to reach CONNECTED/READY. */
         const val CONNECT_TIMEOUT_MS = 10_000L
+
+        /**
+         * Per-process fallback peer string used for the envelope sender id
+         * when `PrefsStore` is unavailable (never persisted; a stable stored
+         * peerId is preferred so mesh dedup stays effective across restarts).
+         */
+        private val fallbackPeerHex: String = UUID.randomUUID().toString()
     }
 
     override suspend fun sendOrder(bytes: ByteArray): Result<Unit> {
@@ -143,7 +165,7 @@ class BleMeshSender @Inject constructor(
         }
 
         val written = try {
-            gattClient.writeOrder(bytes)
+            gattClient.writeOrder(envelopeForOrder(bytes))
         } catch (se: SecurityException) {
             gattClient.disconnect()
             return Result.failure(
@@ -175,6 +197,40 @@ class BleMeshSender @Inject constructor(
             .map { raw -> String(raw, StandardCharsets.UTF_8).trim() }
             .filter { it.isNotEmpty() }
             .onEach { ackedId -> runCatching { outbox.ack(ackedId) } }
+
+    /**
+     * Wraps raw `OrderCodec` [orderBytes] in a `TYPE_ORDER` broadcast
+     * [MeshPacket][com.sodamesh.mesh.model.MeshPacket] envelope and returns
+     * the wire bytes for [GattClientManager.writeOrder].
+     *
+     * The sender id is derived deterministically from the stable
+     * `PrefsStore` peerId ([MeshPacketFactory.senderIdForPeerId]), so
+     * retries reuse one identity and mesh [DedupCache][com.sodamesh.mesh.router.DedupCache]
+     * stays effective. Falls back to a per-process random identity when the
+     * store is unavailable.
+     */
+    suspend fun envelopeForOrder(orderBytes: ByteArray): ByteArray {
+        val peerHex = runCatching { prefsStore?.getOrCreatePeerId() }
+            .getOrNull()
+            .takeIf { !it.isNullOrBlank() }
+            ?: fallbackPeerHex
+        val senderId = MeshPacketFactory.senderIdForPeerId(peerHex)
+        // Broadcast (recipientId = null): relay flood policy applies.
+        return MeshPacketFactory.buildOrderPacket(senderId, orderBytes).toBytes()
+    }
+
+    /**
+     * Best-effort background redelivery of one RAW order payload for
+     * [OutboxWorker]: re-envelopes via [envelopeForOrder] and writes over
+     * the current GATT link. No scanning/connecting — returns false when no
+     * live link is up (the entry stays queued for the next sweep or the next
+     * foreground [sendOrder]).
+     */
+    suspend fun retryDelivery(orderBytes: ByteArray): Boolean {
+        val wire = runCatching { envelopeForOrder(orderBytes) }.getOrNull()
+            ?: return false
+        return runCatching { gattClient.writeOrder(wire) }.getOrDefault(false)
+    }
 
     private fun isBluetoothOn(): Boolean =
         try {
