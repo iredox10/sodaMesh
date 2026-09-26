@@ -1,6 +1,5 @@
 package com.sodamesh.customer
 
-import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.navigation.compose.rememberNavController
 import com.sodamesh.NavRoot
@@ -23,6 +22,8 @@ class CustomerNavRoot @Inject constructor() : NavRoot {
     override fun Root() {
         val navController = rememberNavController()
         val vm = sharedCustomerViewModel()
+        // Attaches the Hilt MeshSender to the shared VM for the whole flow.
+        AttachMeshSender(vm)
         SodaNav(
             navController = navController,
             isVendor = false,

@@ -61,7 +61,7 @@ internal fun sharedCustomerViewModel(): CustomerViewModel {
  * the VM already fails sends with a clear message in that case.
  */
 @Composable
-private fun AttachMeshSender(vm: CustomerViewModel) {
+internal fun AttachMeshSender(vm: CustomerViewModel) {
     val appContext = LocalContext.current.applicationContext
     DisposableEffect(appContext, vm) {
         val sender = runCatching {
