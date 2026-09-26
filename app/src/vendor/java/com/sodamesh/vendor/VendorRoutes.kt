@@ -1,6 +1,7 @@
 package com.sodamesh.vendor
 
 import android.content.Context
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -8,6 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import com.sodamesh.MeshService
 import com.sodamesh.navigation.SodaRoutes
@@ -96,6 +99,19 @@ internal fun ForwardVendorAcks(
 }
 
 // ---- Routes ---------------------------------------------------------------
+
+/**
+ * Activity-scoped [androidx.lifecycle.ViewModelStoreOwner] so vendor
+ * destinations share one ViewModel across home/alerts (mirrors the customer
+ * pattern in CustomerRoutes.kt).
+ */
+@Composable
+internal fun sharedVendorViewModel(): VendorViewModel {
+    val context = LocalContext.current
+    val owner = (context as? ComponentActivity)
+        ?: checkNotNull(LocalViewModelStoreOwner.current) { "No ViewModelStoreOwner for VendorViewModel" }
+    return viewModel(owner)
+}
 
 /**
  * Nav-aware vendor home.

@@ -1,6 +1,5 @@
 package com.sodamesh
 
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -23,99 +22,61 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.compose.rememberNavController
-import com.sodamesh.customer.CartRoute
-import com.sodamesh.customer.CustomerViewModel
-import com.sodamesh.customer.MenuRoute
-import com.sodamesh.customer.SendRoute
-import com.sodamesh.navigation.SodaNav
 import com.sodamesh.perms.PermissionManager
 import com.sodamesh.perms.rememberMeshPermissionLauncher
-import com.sodamesh.vendor.CollectVendorIncoming
-import com.sodamesh.vendor.VendorAlertsRoute
-import com.sodamesh.vendor.VendorHomeRoute
-import com.sodamesh.vendor.VendorViewModel
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 
 /**
- * Nav wiring owned by the infra agent.
+ * Flavor-neutral nav root contract.
  *
- * Returns the root content lambda for the given flavor; [MainActivity] calls
- * the returned lambda inside `setContent`, e.g.:
- *
- * ```
- * setContent { SodaMeshTheme { wireNav(isVendor = FlavorConfig.isVendor)() } }
- * ```
- *
- * The root is gated on [PermissionGate] first, then delegates to the REAL
- * feature route composables (joint compilation with the feature agents):
- *
- * - customer (`com.sodamesh.customer.CustomerRoutes`): [MenuRoute] /
- *   [CartRoute] / [SendRoute] hosted in [SodaNav]; menu→cart→send navigation
- *   lives inside those routes via the hoisted `NavController`.
- * - vendor (`com.sodamesh.vendor.VendorRoutes`): nav-aware [VendorHomeRoute]
- *   (overload taking the `NavController`; resolved by parameter types from the
- *   ViewModel-bound one in `VendorHomeScreen.kt`) + [VendorAlertsRoute].
- *
- * ViewModels are scoped to the host [ComponentActivity] (not the
- * per-destination back-stack entry) so menu/cart/send share one
- * [CustomerViewModel], mirroring `CustomerRoutes.sharedCustomerViewModel`.
- * `hiltViewModel()` is unavailable (`androidx.hilt:hilt-navigation-compose`
- * is not a dependency — no deps added, out of scope); plain [viewModel] with
- * the activity owner is equivalent here since both VMs have no-arg
- * `@Inject` constructors.
+ * Flavor source sets (`src/customer`, `src/vendor`) are exclusive per variant,
+ * so code in `main` cannot reference flavor classes directly. Each flavor
+ * binds its own [NavRoot] implementation (`CustomerNavRoot` / `VendorNavRoot`)
+ * via a Hilt module in its source set, and [wireNav] resolves it through
+ * [NavRootEntryPoint] at composition time.
  */
+interface NavRoot {
+    @Composable
+    fun Root()
+}
+
+/** Hilt accessor for the flavor-bound [NavRoot]. */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface NavRootEntryPoint {
+    fun navRoot(): NavRoot
+}
+
+/**
+ * Root content lambda for the given flavor; [MainActivity] calls the returned
+ * lambda inside `setContent`. The [isVendor] parameter is retained for call
+ * compatibility — the actual root comes from the flavor-bound [NavRoot].
+ *
+ * The root is gated on [PermissionGate] first, then renders the flavor nav.
+ */
+@Suppress("UNUSED_PARAMETER")
 fun wireNav(isVendor: Boolean): @Composable () -> Unit = {
     PermissionGate {
-        if (isVendor) {
-            VendorRoot()
+        val context = LocalContext.current
+        val root = remember(context) {
+            runCatching {
+                EntryPointAccessors
+                    .fromApplication(context.applicationContext, NavRootEntryPoint::class.java)
+                    .navRoot()
+            }.getOrNull()
+        }
+        if (root != null) {
+            root.Root()
         } else {
-            CustomerRoot()
+            Text(
+                text = "SodaMesh UI unavailable for this flavor",
+                style = MaterialTheme.typography.bodyLarge,
+            )
         }
     }
-}
-
-@Composable
-private fun CustomerRoot() {
-    val navController = rememberNavController()
-    val vm: CustomerViewModel = viewModel(activityOwner())
-    SodaNav(
-        navController = navController,
-        isVendor = false,
-        menuScreen = { MenuRoute(navController = navController, vm = vm) },
-        cartScreen = { CartRoute(navController = navController, vm = vm) },
-        sendScreen = { SendRoute(navController = navController, vm = vm) },
-    )
-}
-
-@Composable
-private fun VendorRoot() {
-    val navController = rememberNavController()
-    val vm: VendorViewModel = viewModel(activityOwner())
-    // Always-on collector: inbound mesh orders reach the VM from ANY
-    // destination (auto-nav to alerts keys off pendingCount, which would
-    // never grow if collection only ran while the alerts screen was up).
-    CollectVendorIncoming(vm = vm)
-    SodaNav(
-        navController = navController,
-        isVendor = true,
-        vendorHomeScreen = { VendorHomeRoute(navController = navController, vm = vm) },
-        alertsScreen = { VendorAlertsRoute(vm = vm) },
-    )
-}
-
-/**
- * Activity-scoped [androidx.lifecycle.ViewModelStoreOwner] so customer/vendor
- * flows share one ViewModel across all destinations.
- */
-@Composable
-private fun activityOwner(): ComponentActivity {
-    val context = LocalContext.current
-    return (context as? ComponentActivity)
-        ?: checkNotNull(LocalViewModelStoreOwner.current as? ComponentActivity) {
-            "No ComponentActivity owner for shared ViewModel"
-        }
 }
 
 /**

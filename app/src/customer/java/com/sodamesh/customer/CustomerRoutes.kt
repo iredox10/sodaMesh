@@ -48,7 +48,7 @@ interface MeshSenderEntryPoint {
  * instead keeps ONE VM shared across menu/cart/send for the whole customer flow.
  */
 @Composable
-private fun sharedCustomerViewModel(): CustomerViewModel {
+internal fun sharedCustomerViewModel(): CustomerViewModel {
     val context = LocalContext.current
     val owner = (context as? ComponentActivity)
         ?: checkNotNull(LocalViewModelStoreOwner.current) { "No ViewModelStoreOwner for CustomerViewModel" }
